@@ -27,6 +27,18 @@ describe Resque::Plugins::HerokuAutoscaler::Config do
     end
   end
 
+  describe ".heroku_task" do
+    it "stores the given heroku task name" do
+      subject.heroku_task = "resque"
+      subject.heroku_task.should == "resque"
+    end
+
+    it "defaults to worker" do
+      subject.heroku_task = nil
+      subject.heroku_task.should == "worker"
+    end
+  end
+
   describe ".scaling_disabled?" do
 
     it{ Resque::Plugins::HerokuAutoscaler::Config.scaling_disabled?.should be_false}
