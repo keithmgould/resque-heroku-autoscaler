@@ -33,7 +33,7 @@ module Resque
       end
 
       def current_workers
-        heroku_api.get_ps(config.heroku_app).body.count {|p| p['process'].match(/worker\.\d+/) }
+        heroku_api.get_ps(config.heroku_app).body.count {|p| p['process'].match(/#{config.heroku_task}\.\d+/) }
       end
 
       def heroku_api
