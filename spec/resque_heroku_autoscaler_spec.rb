@@ -175,7 +175,7 @@ describe Resque::Plugins::HerokuAutoscaler do
 
       describe "when we changed the worker count in less than minimum wait time" do
         before do
-          subject.config { |c| c.wait_time = 2}
+          subject.config { |c| c.wait_between_scaling = 2}
           @last_set = Time.parse("00:00:00")
           Resque.redis.set('last_scaled', @last_set)
         end
