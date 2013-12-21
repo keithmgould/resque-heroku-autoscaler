@@ -51,51 +51,11 @@ describe Resque::Plugins::HerokuAutoscaler::Config do
 
   describe ".wait_time" do
 
-    it{ Resque::Plugins::HerokuAutoscaler::Config.wait_time.should == 60}
+    it{ Resque::Plugins::HerokuAutoscaler::Config.wait_time.should == 30}
 
     it "can be set" do
-      subject.wait_time = 30
-      subject.wait_time.should == 30
-    end
-  end
-
-  describe ".new_worker_count" do
-    before do
-      @original_method = Resque::Plugins::HerokuAutoscaler::Config.instance_variable_get(:@new_worker_count)
-    end
-
-    after do
-      Resque::Plugins::HerokuAutoscaler::Config.instance_variable_set(:@new_worker_count, @original_method)
-    end
-
-    it "should store a block as a Proc" do
-      subject.new_worker_count do |pending|
-        pending/5
-      end
-
-      subject.new_worker_count(10).should == 2
-    end
-
-    it "should be able to take the Resque job's payload as arguments" do
-      subject.new_worker_count do |pending, queue|
-        if queue == "test_queue"
-          10
-        else
-          pending/5
-        end
-      end
-
-      job_payload = ["test_queue", "more", "payload"]
-      subject.new_worker_count(10, *job_payload).should == 10
-    end
-
-    context "when the proc was not yet set" do
-      before do
-        subject.new_worker_count do |pending, queue|
-        end
-        it { subject.new_worker_count(0).should == 0 }
-        it { subject.new_worker_count(1).should == 1 }
-      end
+      subject.wait_time = 10
+      subject.wait_time.should == 10
     end
   end
 end
