@@ -51,7 +51,7 @@ describe Resque::Plugins::HerokuAutoscaler::Config do
 
   describe ".wait_time" do
 
-    it{ Resque::Plugins::HerokuAutoscaler::Config.wait_time.should == 30}
+    it{ Resque::Plugins::HerokuAutoscaler::Config.wait_time.should == 3}
 
     it "can be set" do
       subject.wait_time = 10
