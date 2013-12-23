@@ -51,7 +51,7 @@ describe Resque::Plugins::HerokuAutoscaler::Config do
 
   describe ".wait_between_scaling" do
 
-    it{ Resque::Plugins::HerokuAutoscaler::Config.wait_between_scaling.should == 0}
+    it{ Resque::Plugins::HerokuAutoscaler::Config.wait_between_scaling.should == 5}
 
     it "can be set" do
       subject.wait_between_scaling = 10
