@@ -10,15 +10,12 @@ module Resque
 
         attr_writer :min_workers
         def min_workers
-          return 0 unless @min_workers
-          [@min_workers, 0].max
+          @min_workers || 0
         end
 
         attr_writer :max_workers
         def max_workers
-          return nil unless @max_workers
-          return nil if @max_workers < min_workers
-          @max_workers
+          @max_workers || 0
         end
 
         def scaling_disabled?

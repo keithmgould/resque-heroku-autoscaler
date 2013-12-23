@@ -10,46 +10,41 @@ module Resque
 
       def after_enqueue_scale_workers_up(*args)
         calculate_and_set_workers
-        Resque.redis.del('resque_scaling')
       end
 
       def before_perform_scale_workers(*args)
         calculate_and_set_workers
-        Resque.redis.del('resque_scaling')
       end
 
       def after_perform_scale_workers(*args)
         calculate_and_set_workers
-        Resque.redis.del('resque_scaling')
       end
 
       def on_failure_scale_workers(*args)
         calculate_and_set_workers
-        Resque.redis.del('resque_scaling')
       end
 
       def calculate_and_set_workers
-        return if config.scaling_disabled? || scaling_in_progress?
+        return if config.scaling_disabled? || scaling_in_progress? || !time_to_scale?
         clear_stale_workers if current_workers == 0
 
         Resque.redis.set('resque_scaling', Time.now)
+        Resque.redis.set('last_scaled', Time.now)
         new_count = Resque.info[:pending].to_i - free_workers
-        new_count = [config.min_workers, new_count].max
-        new_count = [config.max_workers, new_count].min if config.max_workers
-
-        return if new_count != config.min_workers && !time_to_scale?
+        new_count = config.max_workers if config.max_workers > 0 && new_count > config.max_workers
+        new_count = config.min_workers if new_count < config.min_workers
+        new_count = 0 if new_count < 0
 
         set_workers(new_count)
+        Resque.redis.del('resque_scaling')
       end
 
       def set_workers(number_of_workers)
         return if number_of_workers == current_workers
-        return if number_of_workers < current_workers && (Resque.info[:pending].to_i > 0 || Resque.info[:working].to_i > 0)
+        return if number_of_workers < current_workers && Resque.info[:pending].to_i > 0
         return if number_of_workers > current_workers && Resque.info[:pending].to_i <= 0
 
-        Resque.redis.set('last_scaled', Time.now)
         heroku_api.post_ps_scale(config.heroku_app, config.heroku_task, number_of_workers)
-        Resque.redis.del('resque_scaling')
       end
 
       def current_workers
@@ -71,7 +66,6 @@ module Resque
         time_waited_so_far = Time.now - Time.parse(scaling_time)
         if time_waited_so_far > 30
           Resque.redis.del('resque_scaling')
-          false
         else
           true
         end

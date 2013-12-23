@@ -55,7 +55,7 @@ describe Resque::Plugins::HerokuAutoscaler do
         TestJob.stub(:current_workers => 4 )
         Resque.stub(:info => {:pending => 7, :working => 3})
 
-        TestJob.should_receive(:set_workers).with(6)
+        TestJob.should_receive(:set_workers)
         TestJob.after_enqueue_scale_workers_up
       end
 
@@ -139,8 +139,7 @@ describe Resque::Plugins::HerokuAutoscaler do
         end
 
         it "sets last scaled time" do
-          TestJob.stub(:current_workers => 4 )
-          Resque.stub(:info => {:pending => 7, :working => 3})
+          TestJob.stub(:set_workers => nil)
           TestJob.calculate_and_set_workers
           Resque.redis.get('last_scaled').should == @now.to_s
         end
@@ -205,14 +204,6 @@ describe Resque::Plugins::HerokuAutoscaler do
         after { Timecop.return }
 
         it "should not adjust the worker count" do
-          TestJob.stub(:current_workers => 1)
-          Resque.stub(:info => {:pending => 2, :working =>0})
-          Timecop.freeze(@last_set + 1)
-          TestJob.should_not_receive(:set_workers)
-          TestJob.calculate_and_set_workers
-        end
-
-        it "still scales down if minimum" do
           Timecop.freeze(@last_set + 1)
           TestJob.should_not_receive(:set_workers)
           TestJob.calculate_and_set_workers
