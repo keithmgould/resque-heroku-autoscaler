@@ -66,16 +66,14 @@ module Resque
         time_waited_so_far = Time.now - Time.parse(scaling_time)
         if time_waited_so_far > 30
           Resque.redis.del('resque_scaling')
+          false
         else
           true
         end
       end
 
       def clear_stale_workers
-        Resque.workers.each do |w|
-          w.done_working
-          w.unregister_worker
-        end
+        Resque.workers.each {|w| w.unregister_worker}
       end
 
       def free_workers
