@@ -37,9 +37,14 @@ module Resque
           @heroku_task || 'worker'
         end
 
+        attr_writer :wait_time
+        def wait_time
+          @wait_time || 3
+        end
+
         attr_writer :wait_between_scaling
         def wait_between_scaling
-          @wait_between_scaling || 0
+          @wait_between_scaling || 30
         end
 
         def reset
