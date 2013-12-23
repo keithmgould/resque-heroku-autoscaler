@@ -38,29 +38,8 @@ describe Resque::Plugins::HerokuAutoscaler do
         end.should_not raise_error
       end
 
-      it "should not scale if scaling in progress" do
-        Resque.redis.set('resque_scaling', Time.now)
-        Resque.redis.set('last_scaled', Time.now - 1.day)
-        TestJob.stub(:current_workers => 4 )
-        Resque.stub(:info => {:pending => 7, :working => 3})
-
-        TestJob.should_not_receive(:set_workers)
-        @fake_heroku_api.should_not_receive(:post_ps_scale)
-        TestJob.after_enqueue_scale_workers_up
-      end
-
-      it "should scale if scaling in progress has been in progress too long" do
-        Resque.redis.set('resque_scaling', Time.now - 1.minute)
-        Resque.redis.set('last_scaled', Time.now - 1.day)
-        TestJob.stub(:current_workers => 4 )
-        Resque.stub(:info => {:pending => 7, :working => 3})
-
-        TestJob.should_receive(:set_workers)
-        TestJob.after_enqueue_scale_workers_up
-      end
-
       it "should create workers to do all pending jobs" do
-        Resque.redis.set('last_scaled', Time.now - 1.day)
+        Resque.redis.stub(:get).with('last_scaled').and_return((Time.now - 1.day).to_s)
         TestJob.stub(:current_workers => 4 )
         Resque.stub(:info => {:pending => 7, :working => 3})
         @fake_heroku_api.should_receive(:post_ps_scale).with(anything, anything, 6)

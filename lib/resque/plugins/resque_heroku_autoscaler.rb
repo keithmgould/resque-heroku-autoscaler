@@ -25,10 +25,9 @@ module Resque
       end
 
       def calculate_and_set_workers
-        return if config.scaling_disabled? || scaling_in_progress? || !time_to_scale?
-        clear_stale_workers if current_workers == 0
+        return if config.scaling_disabled?
+        return unless time_to_scale?
 
-        Resque.redis.set('resque_scaling', Time.now)
         Resque.redis.set('last_scaled', Time.now)
         new_count = Resque.info[:pending].to_i - free_workers
         new_count = config.max_workers if config.max_workers > 0 && new_count > config.max_workers
@@ -36,7 +35,6 @@ module Resque
         new_count = 0 if new_count < 0
 
         set_workers(new_count)
-        Resque.redis.del('resque_scaling')
       end
 
       def set_workers(number_of_workers)
@@ -60,21 +58,6 @@ module Resque
       end
 
       private
-
-      def scaling_in_progress?
-        return false unless scaling_time = Resque.redis.get('resque_scaling')
-        time_waited_so_far = Time.now - Time.parse(scaling_time)
-        if time_waited_so_far > 30
-          Resque.redis.del('resque_scaling')
-          false
-        else
-          true
-        end
-      end
-
-      def clear_stale_workers
-        Resque.workers.each {|w| w.unregister_worker}
-      end
 
       def free_workers
         [current_workers - Resque.info[:working].to_i, 0].max
