@@ -39,7 +39,7 @@ module Resque
 
         attr_writer :wait_between_scaling
         def wait_between_scaling
-          @wait_between_scaling || 10
+          @wait_between_scaling || 0
         end
 
         def reset
