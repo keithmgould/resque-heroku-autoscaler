@@ -9,13 +9,8 @@ module Resque
       end
 
       def after_enqueue_scale_workers_up(*args)
-        if !config.scaling_disabled? && \
-          Resque.info[:workers] == 0 && \
-          config.new_worker_count(Resque.info[:pending]) >= 1
-
-          set_workers(1)
-          Resque.redis.set('last_scaled', Time.now)
-        end
+        return if config.scaling_disabled?
+        scale_on_enqueue
       end
 
       def after_perform_scale_workers(*args)
@@ -45,30 +40,36 @@ module Resque
       end
 
       def calculate_and_set_workers
-        unless config.scaling_disabled?
-          wait_for_task_or_scale
-          if time_to_scale?
-            scale
-          end
-        end
+        return if config.scaling_disabled?
+        scale if time_to_scale?
       end
 
       private
 
+      def min_workers
+        [config.new_worker_count(0), 0].max
+      end
+
       def scale
         new_count = config.new_worker_count(Resque.info[:pending])
-        set_workers(new_count) if new_count == 0 || new_count > current_workers
+        set_workers(new_count) if new_count == min_workers || new_count > current_workers
         Resque.redis.set('last_scaled', Time.now)
       end
 
-      def wait_for_task_or_scale
-        until Resque.info[:pending] > 0 || time_to_scale?
-          Kernel.sleep(0.5)
+      def scale_on_enqueue
+        new_count = config.new_worker_count(Resque.info[:pending])
+        if current_workers <= 0 || new_count == min_workers || new_count > current_workers
+          set_workers([new_count,1].max)
         end
+        Resque.redis.set('last_scaled', Time.now)
       end
 
       def time_to_scale?
-        (Time.now - Time.parse(Resque.redis.get('last_scaled'))) >=  config.wait_time
+        return true unless last_scaled = Resque.redis.get('last_scaled')
+        return true if config.wait_time <= 0
+
+        time_waited_so_far = Time.now - Time.parse(last_scaled)
+        time_waited_so_far >=  config.wait_time || time_waited_so_far < 0
       end
 
       def log(message)
