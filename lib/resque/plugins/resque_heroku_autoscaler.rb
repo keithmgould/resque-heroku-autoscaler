@@ -50,6 +50,13 @@ module Resque
         [config.new_worker_count(0), 0].max
       end
 
+      def clear_stale_workers
+        Resque.workers.each do |w|
+          w.done_working
+          w.unregister_worker
+        end
+      end
+
       def scale
         new_count = config.new_worker_count(Resque.info[:pending])
         set_workers(new_count) if new_count == min_workers || new_count > current_workers
@@ -57,6 +64,9 @@ module Resque
       end
 
       def scale_on_enqueue
+        return if current_workers >= 0 && !time_to_scale?
+        clear_stale_workers if current_workers == 0
+
         new_count = config.new_worker_count(Resque.info[:pending])
         if current_workers <= 0 || new_count == min_workers || new_count > current_workers
           set_workers([new_count,1].max)
