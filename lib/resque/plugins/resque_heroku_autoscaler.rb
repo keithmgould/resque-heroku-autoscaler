@@ -8,13 +8,18 @@ module Resque
         Resque::Plugins::HerokuAutoscaler::Config
       end
 
-      def after_enqueue_scale_workers_up(*args)
+      def before_enqueue_scale_workers(*args)
         calculate_and_set_workers
         Resque.redis.del('resque_scaling')
       end
 
+      def after_enqueue_scale_workers_up(*args)
+        calculate_and_set_workers(false)
+        Resque.redis.del('resque_scaling')
+      end
+
       def before_perform_scale_workers(*args)
-        calculate_and_set_workers
+        calculate_and_set_workers(false)
         Resque.redis.del('resque_scaling')
       end
 
@@ -28,7 +33,7 @@ module Resque
         Resque.redis.del('resque_scaling')
       end
 
-      def calculate_and_set_workers
+      def calculate_and_set_workers(scale_down_allowed=true)
         return if config.scaling_disabled? || scaling_in_progress?
         clear_stale_workers if current_workers == 0
 
@@ -38,14 +43,15 @@ module Resque
         new_count = [config.max_workers, new_count].min if config.max_workers
 
         return if new_count != config.min_workers && !time_to_scale?
+        return if !scale_down_allowed && new_count < current_workers
 
         set_workers(new_count)
       end
 
       def set_workers(number_of_workers)
-        return if number_of_workers == current_workers
-        return if number_of_workers < current_workers && (Resque.info[:pending].to_i > 0 || Resque.info[:working].to_i > 0)
+        return if number_of_workers < current_workers && Resque.info[:pending].to_i > 0
         return if number_of_workers > current_workers && Resque.info[:pending].to_i <= 0
+        return if number_of_workers == current_workers
 
         Resque.redis.set('last_scaled', Time.now)
         heroku_api.post_ps_scale(config.heroku_app, config.heroku_task, number_of_workers)
@@ -90,6 +96,8 @@ module Resque
 
       def time_to_scale?
         return true unless last_scaled = Resque.redis.get('last_scaled')
+        return true if config.wait_between_scaling <= 0
+
         time_waited_so_far = Time.now - Time.parse(last_scaled)
         time_waited_so_far >=  config.wait_between_scaling || time_waited_so_far < 0
       end

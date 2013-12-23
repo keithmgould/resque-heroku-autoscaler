@@ -67,12 +67,22 @@ describe Resque::Plugins::HerokuAutoscaler do
         TestJob.after_enqueue_scale_workers_up
       end
 
-      it "should set last_scaled" do
+      it "should set not scale down" do
         Resque.redis.set('last_scaled', Time.now- 1.day)
         now = Time.now
         Resque.redis.get('last_scaled').should_not == now.to_s
         Timecop.freeze(now)
         TestJob.after_enqueue_scale_workers_up
+        Resque.redis.get('last_scaled').should_not == now.to_s
+        Timecop.return
+      end
+
+      it "should set last_scaled" do
+        Resque.redis.set('last_scaled', Time.now- 1.day)
+        now = Time.now
+        Resque.redis.get('last_scaled').should_not == now.to_s
+        Timecop.freeze(now)
+        TestJob.after_perform_scale_workers
         Resque.redis.get('last_scaled').should == now.to_s
         Timecop.return
       end
