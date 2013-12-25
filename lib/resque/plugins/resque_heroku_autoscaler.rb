@@ -22,9 +22,8 @@ module Resque
       end
 
       def set_workers(number_of_workers)
-        if number_of_workers != current_workers
-          heroku_api.post_ps_scale(config.heroku_app, config.heroku_task, number_of_workers)
-        end
+        return if (jobs_in_progress? && number_of_workers < current_workers) || number_of_workers == current_workers
+        heroku_api.post_ps_scale(config.heroku_app, config.heroku_task, number_of_workers)
       end
 
       def current_workers
@@ -46,6 +45,11 @@ module Resque
 
       private
 
+      def jobs_in_progress?
+        working = Resque.info[:working] || 0
+        working > 0
+      end
+
       def min_workers
         [config.new_worker_count(0), 0].max
       end
@@ -59,6 +63,7 @@ module Resque
 
       def scale
         new_count = config.new_worker_count(Resque.info[:pending])
+
         set_workers(new_count) if new_count == min_workers || new_count > current_workers
         Resque.redis.set('last_scaled', Time.now)
       end
@@ -68,8 +73,8 @@ module Resque
         clear_stale_workers if current_workers == 0
 
         new_count = config.new_worker_count(Resque.info[:pending])
-        if current_workers <= 0 || new_count == min_workers || new_count > current_workers
-          set_workers([new_count,1].max)
+        if current_workers <= 0 || new_count > current_workers
+          set_workers([new_count,min_workers].max)
         end
         Resque.redis.set('last_scaled', Time.now)
       end
