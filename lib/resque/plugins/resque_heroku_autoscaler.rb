@@ -74,7 +74,7 @@ module Resque
 
         new_count = config.new_worker_count(Resque.info[:pending])
         if current_workers <= 0 || new_count > current_workers
-          set_workers([new_count,min_workers].max)
+          set_workers([new_count,min_workers,1].max)
         end
         Resque.redis.set('last_scaled', Time.now)
       end
