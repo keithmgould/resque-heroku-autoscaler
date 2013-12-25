@@ -39,6 +39,7 @@ describe Resque::Plugins::HerokuAutoscaler do
       end
 
       it "should set last_scaled" do
+        TestJob.stub(:current_workers => 0)
         Resque.redis.set('last_scaled', Time.now- 1.day)
         now = Time.now
         Resque.redis.get('last_scaled').should_not == now.to_s
@@ -90,7 +91,7 @@ describe Resque::Plugins::HerokuAutoscaler do
       end
     end
 
-    describe ".calculate_and_set_workers" do
+    describe ".scale" do
       before do
         Resque.redis.set('last_scaled', Time.now - 120)
       end
@@ -106,12 +107,12 @@ describe Resque::Plugins::HerokuAutoscaler do
 
         it "should set workers to 0" do
           @fake_heroku_api.should_receive(:post_ps_scale).with(anything, anything, 0)
-          TestJob.calculate_and_set_workers
+          TestJob.scale
         end
 
         it "sets last scaled time" do
-          TestJob.stub(:set_workers => nil)
-          TestJob.calculate_and_set_workers
+          TestJob.stub(:current_workers => 2)
+          TestJob.scale
           Resque.redis.get('last_scaled').should == @now.to_s
         end
       end
@@ -124,7 +125,7 @@ describe Resque::Plugins::HerokuAutoscaler do
         it "should keep workers at 1" do
           @fake_heroku_api.should_receive(:post_ps_scale).with(anything, anything, 1)
           TestJob.stub(:current_workers => 0)
-          TestJob.calculate_and_set_workers
+          TestJob.scale
         end
 
         context "when scaling workers is disabled" do
@@ -136,7 +137,7 @@ describe Resque::Plugins::HerokuAutoscaler do
 
           it "should not use the heroku client" do
             @fake_heroku_api.should_not_receive(:post_ps_scale)
-            TestJob.calculate_and_set_workers
+            TestJob.scale
           end
         end
       end
@@ -154,7 +155,7 @@ describe Resque::Plugins::HerokuAutoscaler do
 
         it "should use the given block" do
           @fake_heroku_api.should_receive(:post_ps_scale).with(anything, anything, 3)
-          TestJob.calculate_and_set_workers
+          TestJob.scale
         end
       end
 
@@ -166,15 +167,17 @@ describe Resque::Plugins::HerokuAutoscaler do
 
         it "should not scale down workers since we don't want to accidentally shut down busy workers" do
           @fake_heroku_api.should_not_receive(:post_ps_scale)
-          TestJob.calculate_and_set_workers
+          TestJob.scale
         end
       end
 
-      describe "when we changed the worker count in less than minimum wait time" do
+      describe "when we changed the worker count in less than minimum wait time and scaling up" do
         before do
           subject.config { |c| c.wait_time = 2}
           @last_set = Time.parse("00:00:00")
           Resque.redis.set('last_scaled', @last_set)
+          TestJob.stub(:current_workers => 0)
+          Resque.stub(:info => {:pending => 2, :working =>2})
         end
 
         after { Timecop.return }
@@ -182,7 +185,7 @@ describe Resque::Plugins::HerokuAutoscaler do
         it "should not adjust the worker count" do
           Timecop.freeze(@last_set + 1)
           TestJob.should_not_receive(:set_workers)
-          TestJob.calculate_and_set_workers
+          TestJob.scale
         end
       end
     end
@@ -253,7 +256,7 @@ describe Resque::Plugins::HerokuAutoscaler do
         @fake_heroku_api.should_receive(:get_ps).with('my_app').and_return(double(:body => body))
         TestJob.stub(:heroku_api => @fake_heroku_api)
 
-        TestJob.current_workers.should == 2
+        TestJob.send(:current_workers).should == 2
       end
     end
   end
