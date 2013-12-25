@@ -58,7 +58,7 @@ module Resque
 
       def jobs_in_progress?
         working = Resque.info[:working] || 0
-        working > 0
+        working > 1
       end
 
       def min_workers
