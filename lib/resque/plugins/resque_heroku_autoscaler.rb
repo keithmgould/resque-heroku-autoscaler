@@ -46,7 +46,6 @@ module Resque
 
       def scale_on_enqueue
         return if current_workers > 0 && !time_to_scale?
-        return if scaling_in_progress?
         Resque.redis.set('resque_scaling', Time.now)
         clear_stale_workers if current_workers == 0
 
