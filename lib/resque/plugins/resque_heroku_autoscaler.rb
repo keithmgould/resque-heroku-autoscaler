@@ -35,25 +35,20 @@ module Resque
       end
 
       def scale
-        return if scaling_in_progress?
-        Resque.redis.set('resque_scaling', Time.now)
         clear_stale_workers if current_workers == 0
         new_count = config.new_worker_count(Resque.info[:pending])
         return if new_count >= current_workers && !time_to_scale?
         set_workers(new_count) if new_count == min_workers || new_count > current_workers
-        Resque.redis.del('resque_scaling')
       end
 
       def scale_on_enqueue
         return if current_workers > 0 && !time_to_scale?
-        Resque.redis.set('resque_scaling', Time.now)
         clear_stale_workers if current_workers == 0
 
         new_count = config.new_worker_count(Resque.info[:pending])
         if current_workers <= 0 || new_count > current_workers
           set_workers([new_count,min_workers,1].max)
         end
-        Resque.redis.del('resque_scaling')
       end
 
       def heroku_api
@@ -94,17 +89,6 @@ module Resque
         Resque.workers.each do |w|
           w.done_working
           w.unregister_worker
-        end
-      end
-
-      def scaling_in_progress?
-        return false unless scaling_time = Resque.redis.get('resque_scaling')
-        time_waited_so_far = Time.now - Time.parse(scaling_time)
-        if time_waited_so_far > 30
-          Resque.redis.del('resque_scaling')
-          false
-        else
-          true
         end
       end
 
