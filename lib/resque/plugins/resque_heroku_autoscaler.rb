@@ -80,8 +80,11 @@ module Resque
       end
 
       def jobs_in_progress?
+        workers = Resque.info[:workers] || current_workers
         working = Resque.info[:working] || 0
-        working > 1
+
+        out_of_sync_number = [workers - current_workers, 0].max
+        working - out_of_sync_number > 1
       end
 
       def min_workers
