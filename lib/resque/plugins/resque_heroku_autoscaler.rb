@@ -22,24 +22,39 @@ module Resque
 
       def set_workers(number_of_workers)
         return if (jobs_in_progress? && number_of_workers < current_workers) || number_of_workers == current_workers
-        heroku_api.post_ps_scale(config.heroku_app, config.heroku_task, number_of_workers)
+        
+        if number_of_workers < current_workers
+          heroku_api.post_ps_scale(config.heroku_app, config.heroku_task, 0)
+          wait_for_current_workers_to_go_zero
+          clear_stale_workers
+          heroku_api.post_ps_scale(config.heroku_app, config.heroku_task, number_of_workers) if number_of_workers != 0
+        else
+          heroku_api.post_ps_scale(config.heroku_app, config.heroku_task, number_of_workers)
+        end
         Resque.redis.set('last_scaled', Time.now)
       end
 
       def scale
+        return if scaling_in_progress?
+        Resque.redis.set('resque_scaling', Time.now)
+        clear_stale_workers if current_workers == 0
         new_count = config.new_worker_count(Resque.info[:pending])
         return if new_count >= current_workers && !time_to_scale?
         set_workers(new_count) if new_count == min_workers || new_count > current_workers
+        Resque.redis.del('resque_scaling')
       end
 
       def scale_on_enqueue
         return if current_workers >= 0 && !time_to_scale?
+        return if scaling_in_progress?
+        Resque.redis.set('resque_scaling', Time.now)
         clear_stale_workers if current_workers == 0
 
         new_count = config.new_worker_count(Resque.info[:pending])
         if current_workers <= 0 || new_count > current_workers
           set_workers([new_count,min_workers,1].max)
         end
+        Resque.redis.del('resque_scaling')
       end
 
       def heroku_api
@@ -51,6 +66,14 @@ module Resque
       end
 
       private
+
+      def wait_for_current_workers_to_go_zero
+        tries = 0
+        until current_workers == 0 || tries == 4
+          tries += 1
+          Kernel.sleep(0.5)
+        end
+      end
 
       def current_workers
         heroku_api.get_ps(config.heroku_app).body.count {|p| p['process'].match(/#{config.heroku_task}\.\d+/) }
@@ -69,6 +92,17 @@ module Resque
         Resque.workers.each do |w|
           w.done_working
           w.unregister_worker
+        end
+      end
+
+      def scaling_in_progress?
+        return false unless scaling_time = Resque.redis.get('resque_scaling')
+        time_waited_so_far = Time.now - Time.parse(scaling_time)
+        if time_waited_so_far > 30
+          Resque.redis.del('resque_scaling')
+          false
+        else
+          true
         end
       end
 
