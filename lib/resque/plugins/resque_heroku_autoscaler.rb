@@ -22,8 +22,8 @@ module Resque
 
       def set_workers(number_of_workers)
         return if (jobs_in_progress? && number_of_workers < current_workers) || number_of_workers == current_workers
-        
-        if number_of_workers < current_workers
+
+        if number_of_workers < current_workers && Resque.info[:pending] == 0
           heroku_api.post_ps_scale(config.heroku_app, config.heroku_task, 0)
           wait_for_current_workers_to_go_zero
           clear_stale_workers
