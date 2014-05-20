@@ -3,6 +3,7 @@ require 'heroku-api'
 require 'resque'
 require 'timecop'
 require 'active_support/all'
+require 'pry'
 require 'resque/plugins/heroku_autoscaler/config'
 require 'resque/plugins/resque_heroku_autoscaler'
 

@@ -2,17 +2,31 @@ require 'spec_helper'
 
 class TestJob
   extend Resque::Plugins::HerokuAutoscaler
-
   @queue = :test
 end
 
 class AnotherJob
   extend Resque::Plugins::HerokuAutoscaler
-
-  @queue = :test
+  @queue = :another
 end
 
 describe Resque::Plugins::HerokuAutoscaler do
+
+  describe ".queue" do
+    it "returns the name of the job's queue" do
+      expect(TestJob.queue).to eq(:test)
+      expect(AnotherJob.queue).to eq(:another)
+    end
+  end
+
+  describe ".pending_count" do
+    before { Resque.stub(:size).and_return(40) }
+
+    it 'returns the count of pending jobs in the queue used by the current job' do
+        expect(TestJob.pending_count).to eq(40)
+    end
+  end
+
   describe "scaling" do
     before do
       @fake_heroku_api = double(Heroku::API, :post_ps_scale => nil)
@@ -38,17 +52,6 @@ describe Resque::Plugins::HerokuAutoscaler do
         end.should_not raise_error
       end
 
-      it "should set last_scaled" do
-        TestJob.stub(:current_workers => 0)
-        Resque.redis.set('last_scaled', Time.now- 1.day)
-        now = Time.now
-        Resque.redis.get('last_scaled').should_not == now.to_s
-        Timecop.freeze(now)
-        TestJob.after_enqueue_scale_workers_up
-        Resque.redis.get('last_scaled').should == now.to_s
-        Timecop.return
-      end
-
       context "when scaling workers is disabled" do
         before do
           subject.config do |c|
@@ -65,7 +68,7 @@ describe Resque::Plugins::HerokuAutoscaler do
 
     describe ".after_perform_scale_workers" do
       before do
-        Resque.redis.set('last_scaled', Time.now - 120)
+        Resque.redis.set('last_scaled_for_test', Time.now - 120)
       end
 
       it "should add the hook" do
@@ -79,7 +82,7 @@ describe Resque::Plugins::HerokuAutoscaler do
 
     describe ".on_failure_scale_workers" do
       before do
-        Resque.redis.set('last_scaled', Time.now - 120)
+        Resque.redis.set('last_scaled_for_test', Time.now - 120)
       end
 
       it "should add the hook" do
@@ -93,97 +96,12 @@ describe Resque::Plugins::HerokuAutoscaler do
 
     describe ".scale" do
       before do
-        Resque.redis.set('last_scaled', Time.now - 120)
+        Resque.redis.set('last_scaled_for_test', Time.now - 120)
       end
 
-      context "when the queue is empty" do
-        before do
-          @now = Time.now
-          Timecop.freeze(@now)
-          Resque.stub(:info => {:pending => 0} )
-        end
-
-        after { Timecop.return }
-
-        it "should set workers to 0" do
-          @fake_heroku_api.should_receive(:post_ps_scale).with(anything, anything, 0)
-          TestJob.scale
-        end
-
-        it "sets last scaled time" do
-          TestJob.stub(:current_workers => 2)
-          TestJob.scale
-          Resque.redis.get('last_scaled').should == @now.to_s
-        end
-      end
-
-      context "when the queue is not empty" do
-        before do
-          Resque.stub(:info => {:pending => 1} )
-        end
-
-        it "should keep workers at 1" do
-          @fake_heroku_api.should_receive(:post_ps_scale).with(anything, anything, 1)
-          TestJob.stub(:current_workers => 0)
-          TestJob.scale
-        end
-
-        context "when scaling workers is disabled" do
-          before do
-            subject.config do |c|
-              c.scaling_disabled = true
-            end
-          end
-
-          it "should not use the heroku client" do
-            @fake_heroku_api.should_not_receive(:post_ps_scale)
-            TestJob.scale
-          end
-        end
-      end
-
-      context "when multiple pending jobs" do
-        before do
-          TestJob.stub(:current_workers => 2 )
-          Resque.stub(:info => {:pending => 7, :working =>2})
-          subject.config do |c|
-            c.new_worker_count do |pending|
-              to_scale = (pending/2).ceil.to_i
-            end
-          end
-        end
-
-        it "should use the given block" do
-          @fake_heroku_api.should_receive(:post_ps_scale).with(anything, anything, 3)
-          TestJob.scale
-        end
-      end
-
-      context "when the new worker count might shut down busy workers" do
-        before do
-          TestJob.stub(:current_workers => 10)
-          Resque.stub(:info => {:pending => 2, :working =>2})
-        end
-
-        it "should not scale down workers since we don't want to accidentally shut down busy workers" do
-          @fake_heroku_api.should_not_receive(:post_ps_scale)
-          TestJob.scale
-        end
-      end
-
-      describe "when we changed the worker count in less than minimum wait time and scaling up" do
-        before do
-          subject.config { |c| c.wait_time = 2}
-          @last_set = Time.parse("00:00:00")
-          Resque.redis.set('last_scaled', @last_set)
-          TestJob.stub(:current_workers => 0)
-          Resque.stub(:info => {:pending => 2, :working =>2})
-        end
-
-        after { Timecop.return }
-
-        it "should not adjust the worker count" do
-          Timecop.freeze(@last_set + 1)
+      context 'it is not time to scale' do
+        it 'does not set workers' do
+          TestJob.stub(:time_to_scale?).and_return(false)
           TestJob.should_not_receive(:set_workers)
           TestJob.scale
         end
@@ -197,10 +115,27 @@ describe Resque::Plugins::HerokuAutoscaler do
         end
 
         TestJob.stub(:current_workers => 0)
-        Resque.stub(:info => {:pending => 10, :working => 3})
-        @fake_heroku_api.should_receive(:post_ps_scale).with('some_app_name', 'worker', 10)
+        @fake_heroku_api.should_receive(:post_ps_scale).with('some_app_name', 'testworker', 10)
         TestJob.should_receive(:heroku_api).and_return(@fake_heroku_api)
         TestJob.set_workers(10)
+      end
+    end
+
+    describe ".clear_stale_workers" do
+      before do
+        @w0 = double("Worker", to_s: "foo:bar:test", done_working: true, unregister_worker: true)
+        @w1 = double("Worker", to_s: "foo:bar:test", done_working: true, unregister_worker: true)
+        @w2 = double("Worker", to_s: "foo:bar:other", done_working: true, unregister_worker: true)
+        @w3 = double("Worker", to_s: "foo:bar:other", done_working: true, unregister_worker: true)
+        Resque.stub(:workers).and_return [@w0, @w1, @w2, @w3]
+      end
+
+      it 'clears the workers for a given queue' do
+        @w0.should_receive(:done_working) 
+        @w1.should_receive(:done_working) 
+        @w2.should_not_receive(:done_working) 
+        @w3.should_not_receive(:done_working) 
+        TestJob.clear_stale_workers
       end
     end
   end
@@ -241,21 +176,8 @@ describe Resque::Plugins::HerokuAutoscaler do
     end
 
     describe ".current_workers" do
-      it "should request the numbers of active workers from Heroku" do
-        subject.config do |c|
-          c.heroku_app = "my_app"
-        end
-
-        body = [
-          { "app_name" => "my_app", "process" => "web.1" },
-          { "app_name" => "my_app", "process" => "worker.1" },
-          { "app_name" => "my_app", "process" => "worker.2" },
-        ]
-
-        @fake_heroku_api = double(Heroku::API, :post_ps_scale => nil)
-        @fake_heroku_api.should_receive(:get_ps).with('my_app').and_return(double(:body => body))
-        TestJob.stub(:heroku_api => @fake_heroku_api)
-
+      it "should request the numbers of active workers for a given queue from Heroku" do
+        Resque.stub(:workers).and_return ["foo:bar:test", "foo:bar:test", "foo:bar:cheese"]
         TestJob.send(:current_workers).should == 2
       end
     end

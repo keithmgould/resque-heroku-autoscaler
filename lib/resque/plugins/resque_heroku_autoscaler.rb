@@ -8,6 +8,18 @@ module Resque
         Resque::Plugins::HerokuAutoscaler::Config
       end
 
+      def queue
+        self.instance_variable_get("@queue")
+      end
+
+      def worker_name
+        "#{queue}worker"
+      end
+
+      def pending_count
+        Resque.size(queue)
+      end
+
       def after_enqueue_scale_workers_up(*args)
         scale_on_enqueue unless config.scaling_disabled?
       end
@@ -20,35 +32,39 @@ module Resque
         scale unless config.scaling_disabled?
       end
 
-      def set_workers(number_of_workers)
-        return if (jobs_in_progress? && number_of_workers < current_workers) || number_of_workers == current_workers
+      def set_workers(number_of_workers_needed)
+        return if number_of_workers_needed == current_workers
 
-        if number_of_workers < current_workers && Resque.info[:pending] == 0
-          heroku_api.post_ps_scale(config.heroku_app, config.heroku_task, 0)
+        if number_of_workers_needed < current_workers && pending_count == 0
+          heroku_api.post_ps_scale(config.heroku_app, worker_name, 0)
           wait_for_current_workers_to_go_zero
           clear_stale_workers
-          heroku_api.post_ps_scale(config.heroku_app, config.heroku_task, number_of_workers) if number_of_workers != 0
+          heroku_api.post_ps_scale(config.heroku_app, worker_name, number_of_workers_needed) if number_of_workers_needed != 0
         else
-          heroku_api.post_ps_scale(config.heroku_app, config.heroku_task, number_of_workers)
+          heroku_api.post_ps_scale(config.heroku_app, worker_name, number_of_workers_needed)
         end
-        Resque.redis.set('last_scaled', Time.now)
+
+        Resque.redis.set("last_scaled_for_#{queue}", Time.now)
       end
 
       def scale
-        clear_stale_workers if current_workers == 0
-        new_count = config.new_worker_count(Resque.info[:pending])
-        return if new_count >= current_workers && !time_to_scale?
-        set_workers(new_count) if new_count == min_workers || new_count > current_workers
+        return unless time_to_scale?
+        new_count = config.new_worker_count(pending_count)
+        set_workers(new_count) if new_count != current_workers
       end
 
       def scale_on_enqueue
-        return if current_workers > 0 && !time_to_scale?
-        clear_stale_workers if current_workers == 0
-
-        new_count = config.new_worker_count(Resque.info[:pending])
-        if current_workers <= 0 || new_count > current_workers
-          set_workers([new_count,min_workers,1].max)
+        # If we have already set the scale time,
+        # check if it is now scale time.  Otherwise,
+        # set scale time.
+        if Resque.redis.get("last_scaled_for_#{queue}")
+          return unless time_to_scale?
+        else
+          Resque.redis.set("last_scaled_for_#{queue}", Time.now)
         end
+
+        new_count = config.new_worker_count(pending_count)
+        set_workers([new_count,1].max) if new_count != current_workers
       end
 
       def heroku_api
@@ -59,8 +75,6 @@ module Resque
         yield Resque::Plugins::HerokuAutoscaler::Config
       end
 
-      private
-
       def wait_for_current_workers_to_go_zero
         tries = 0
         until current_workers == 0 || tries == 4
@@ -70,30 +84,20 @@ module Resque
       end
 
       def current_workers
-        heroku_api.get_ps(config.heroku_app).body.count {|p| p['process'].match(/#{config.heroku_task}\.\d+/) }
-      end
-
-      def jobs_in_progress?
-        workers = Resque.info[:workers] || current_workers
-        working = Resque.info[:working] || 0
-
-        out_of_sync_number = [workers - current_workers, 0].max
-        working - out_of_sync_number > 1
-      end
-
-      def min_workers
-        [config.new_worker_count(0), 0].max
+        Resque.workers.map(&:to_s).count { |p| p.split(":")[2] == queue.to_s  }
       end
 
       def clear_stale_workers
         Resque.workers.each do |w|
-          w.done_working
-          w.unregister_worker
+          if w.to_s.split(":")[2] == queue.to_s
+            w.done_working
+            w.unregister_worker
+          end
         end
       end
 
       def time_to_scale?
-        return true unless last_scaled = Resque.redis.get('last_scaled')
+        return true unless last_scaled = Resque.redis.get("last_scaled_for_#{queue}")
         return true if config.wait_time <= 0
 
         time_waited_so_far = Time.now - Time.parse(last_scaled)
