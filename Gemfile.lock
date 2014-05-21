@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    resque-heroku-autoscaler (0.3.1)
+    resque-heroku-autoscaler (0.3.2)
       activesupport
       heroku-api
       resque (>= 1.8)

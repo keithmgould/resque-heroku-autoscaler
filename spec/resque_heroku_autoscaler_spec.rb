@@ -120,24 +120,6 @@ describe Resque::Plugins::HerokuAutoscaler do
         TestJob.set_workers(10)
       end
     end
-
-    describe ".clear_stale_workers" do
-      before do
-        @w0 = double("Worker", to_s: "foo:bar:test", done_working: true, unregister_worker: true)
-        @w1 = double("Worker", to_s: "foo:bar:test", done_working: true, unregister_worker: true)
-        @w2 = double("Worker", to_s: "foo:bar:other", done_working: true, unregister_worker: true)
-        @w3 = double("Worker", to_s: "foo:bar:other", done_working: true, unregister_worker: true)
-        Resque.stub(:workers).and_return [@w0, @w1, @w2, @w3]
-      end
-
-      it 'clears the workers for a given queue' do
-        @w0.should_receive(:done_working) 
-        @w1.should_receive(:done_working) 
-        @w2.should_not_receive(:done_working) 
-        @w3.should_not_receive(:done_working) 
-        TestJob.clear_stale_workers
-      end
-    end
   end
 
   describe "config and api" do
@@ -175,10 +157,10 @@ describe Resque::Plugins::HerokuAutoscaler do
       end
     end
 
-    describe ".current_workers" do
+    describe ".current_worker_count" do
       it "should request the numbers of active workers for a given queue from Heroku" do
         Resque.stub(:workers).and_return ["foo:bar:test", "foo:bar:test", "foo:bar:cheese"]
-        TestJob.send(:current_workers).should == 2
+        TestJob.send(:current_worker_count).should == 2
       end
     end
   end
