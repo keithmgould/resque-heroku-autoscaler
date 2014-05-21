@@ -83,7 +83,7 @@ module Resque
       end
 
       def current_workers
-        Resque.workers.map(&:to_s).select { |p| p.split(":")[2] == queue.to_s  }
+        Resque.workers.select { |p| p.to_s.split(":")[2] == queue.to_s  }
       end
 
       def time_to_scale?
